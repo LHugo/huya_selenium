@@ -2,17 +2,23 @@ import time
 from selenium import webdriver
 from fake_useragent import UserAgent
 from selenium.webdriver.chrome.options import Options
-from tomorrow import threads
 import zipfile
 import requests
+import pymongo
+from pymongo.collection import Collection
+from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+from mouse import move, click
+from selenium.webdriver.support.ui import WebDriverWait
 
-login_data = {}
-ua = UserAgent().chrome
-search_key = eval(input("输入主播房间号:"))
-with open("C:/Users/admin/Desktop/100.txt", "r") as f:
-    for each_line in f:
-        ls = each_line.replace("\n", "").split("----")
-        login_data[ls[0]] = ls[1]
+
+def get_random_info():
+    client = pymongo.MongoClient(host='localhost', port=27017)
+    db = client['huya']
+    id_collection = Collection(db, 'huya_users')
+    info = id_collection.find_one_and_delete({})
+    user_name = info["user_name"]
+    password = info["user_password"]
+    return user_name, password
 
 
 def get_proxy():
@@ -23,9 +29,15 @@ def get_proxy():
     return ip, port
 
 
-@threads(10)
-def browser_control():
-    for k, v in login_data.items():
+def browser_login():
+    search_key = eval(input("输入主播房间号:"))
+    num = eval(input("输入机器人数量："))
+    # time_sleep = eval(input("输入挂机时长："))
+    ua = UserAgent()
+    dcap = dict(DesiredCapabilities.CHROME)
+    dcap["phantomjs.page.settings.userAgent"] = ua.random
+    for i in range(num):
+        info = get_random_info()
         ip = get_proxy()[0]
         port = get_proxy()[1]
         username = "aqa314"
@@ -82,30 +94,43 @@ def browser_control():
             zp.writestr("manifest.json", manifest_json)
             zp.writestr("background.js", background_js)
         chrome_options = Options()
+        # chrome_options.add_argument("--headless")
         chrome_options.add_argument("--start-maximized")
         chrome_options.add_extension(plugin_file)
-        driver = webdriver.Chrome(chrome_options=chrome_options)
+        driver = webdriver.Chrome(chrome_options=chrome_options, desired_capabilities=dcap)
         driver.get("http://www.huya.com/{}".format(search_key))
-        time.sleep(3)
-        driver.find_element_by_xpath("//div[@class='hy-nav-right un-login']/a[1]/span[@class='title clickstat']").click()
-        time.sleep(1)
-        driver.find_element_by_xpath("//div[@class='UDBSdkLgn-switch UDBSdkLgn-webQuick']/img").click()
-        time.sleep(1)
-        driver.find_element_by_xpath("//div[@class='UDBSdkLgn-common']/div[1]//input").clear()
-        driver.find_element_by_xpath("//div[@class='UDBSdkLgn-common']/div[1]//input").send_keys(k)
-        driver.find_element_by_xpath("//div[@class='UDBSdkLgn-common']/div[2]//input").clear()
-        driver.find_element_by_xpath("//div[@class='UDBSdkLgn-common']/div[2]//input").send_keys(v)
-        driver.find_element_by_xpath('//div[@class="UDBSdkLgn-mt10"]//input').click()
-        time.sleep(3)
-        driver.find_element_by_xpath("//div[@class='UDBSdkLgn-mt20 clearfix']/a").click()
+        wait = WebDriverWait(driver, 10)
         try:
-            driver.find_element_by_xpath("/html/body/div[6]/div[2]/i").click()
-        except:
-            pass
-        driver.refresh()
+            if wait.until(lambda x: x.find_element_by_xpath(
+                    "//div[@class='hy-nav-right un-login']/a[1]/span[@class='title clickstat']")):
+                driver.find_element_by_xpath("//div[@class='hy-nav-right un-login']/a[1]/span[@class='title clickstat']"
+                                             ).click()
+                if wait.until(lambda x: x.find_element_by_xpath(
+                        "//div[@class='UDBSdkLgn-switch UDBSdkLgn-webQuick']/img")):
+                    time.sleep(1)
+                    driver.find_element_by_xpath("//div[@class='UDBSdkLgn-switch UDBSdkLgn-webQuick']/img").click()
+                    time.sleep(1)
+                    # 输入账号与密码，并取消勾选一周之内自动登录
+                    driver.find_element_by_xpath("//div[@class='UDBSdkLgn-common']/div[1]//input").clear()
+                    driver.find_element_by_xpath("//div[@class='UDBSdkLgn-common']/div[1]//input").send_keys(info[0])
+                    driver.find_element_by_xpath("//div[@class='UDBSdkLgn-common']/div[2]//input").clear()
+                    driver.find_element_by_xpath("//div[@class='UDBSdkLgn-common']/div[2]//input").send_keys(info[1])
+                    driver.find_element_by_xpath('//div[@class="UDBSdkLgn-mt10"]//input').click()
+                    time.sleep(1)
+                    # 点击登录按钮
+                    driver.find_element_by_xpath("//div[@class='UDBSdkLgn-mt20 clearfix']/a").click()
+                    # 捕捉是否出现要求进行手机验证异常，如果出现则关闭手机验证窗口
+                    if WebDriverWait(driver, 1.5).until(lambda x: x.find_element_by_xpath(
+                            "//i[@class='UDBSdkLgn-close J_UDBSdkLgnClose']")):
+                        driver.find_element_by_xpath("//i[@class='UDBSdkLgn-close J_UDBSdkLgnClose']").click()
+                    # 点击暂停播放按钮，限制流量
+                    move(286, 629)
+                    if WebDriverWait(driver, 1.5).until(lambda x: x.find_element_by_xpath(
+                            "//div[@class='player-pause-btn']")):
+                        click()
+        except Exception as e:
+            print(e.args)
+            driver.quit()
 
 
-browser_control()
-
-
-
+browser_login()
